@@ -1,5 +1,5 @@
 {
-  "name": "3d",
+  "name": "fake-3d-engine",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -11,6 +11,7 @@
     "core-js": "^3.8.3",
     "d3": "^7.6.1",
     "element-plus": "^2.2.9",
+    "extend": "^3.0.2",
     "mathjs": "^10.6.4",
     "vue": "^3.2.13"
   },

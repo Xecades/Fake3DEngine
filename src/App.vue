@@ -1,17 +1,22 @@
 <template>
     <div id="toolbar">
-        <span>焦距</span><el-slider v-model="focal" :min=2 :max=20 :step=0.1 />
+        <span>焦距</span><el-slider v-model="focal" :min=0.1 :max=20 :step=0.1 />
         <span>物体高度</span><el-slider v-model="height" :min=0.3 :max=5 :step=0.1 />
         <span>摄像机高度</span><el-slider v-model="camera_height" :min=0.3 :max=5 :step=0.1 />
         <span>鼠标灵敏度</span><el-slider v-model="rotate_sensitivity" :min=0.03 :max=1.5 :step=0.01 />
         <span>移动速度</span><el-slider v-model="camera_step" :min=0.03 :max=1.5 :step=0.01 />
-        <span>WSAD 键移动，Q 键逆时针旋转，E 键顺时针旋转，左右屏幕均可点击</span>
+        <p>WSAD 键移动，Q 键逆时针旋转，E 键顺时针旋转，左右屏幕均可点击.</p>
+        <p>本项目未使用任何第三方 3D 引擎.</p>
+        <p>&copy; <a id="xec" href="https://xecades.xyz/" target="_blank">Xecades</a> 2022</p>
     </div>
     <div id="canvas"></div>
 </template>
 
 <script>
 import * as d3 from "d3";
+import extend from "extend";
+
+// y = 1000 / (0.7701017917x + 5.0794922683)
 
 const grid = 33;
 
@@ -20,7 +25,6 @@ const ch = 15;
 const spacing = 1;
 const camera_radius = 0.25;
 
-const view_angle = 114; // 视角
 const view_radius = Math.sqrt(cw * cw + ch * ch); // 视角半径
 const view_step = 5;
 
@@ -48,8 +52,7 @@ function isIntersect(line1, line2) {
             Math.min(line1.x1, line1.x2) < Math.max(line2.x1, line2.x2) &&
             Math.min(line2.y1, line2.y2) < Math.max(line1.y1, line1.y2) &&
             Math.min(line2.x1, line2.x2) < Math.max(line1.x1, line1.x2) &&
-            Math.min(line1.y1, line1.y2) < Math.max(line2.y1, line2.y2)
-    ))
+            Math.min(line1.y1, line1.y2) < Math.max(line2.y1, line2.y2)))
         return false;
 
     let u, v, w, z;
@@ -140,14 +143,15 @@ export default {
             camera_height: 1.5,
             rotate_sensitivity: 0.4,
             camera_step: 0.15,
+            view_angle: 114,
         };
     },
     watch: {
         camx() {
             this.paintCamera();
             this.paintView();
-            this.calcAvailableMesh();
-            this.paintAvailableMesh();
+            this.processMesh();
+            this.paintMesh();
             this.paintFocal();
             this.render();
         },
@@ -155,37 +159,38 @@ export default {
         camy() {
             this.paintCamera();
             this.paintView();
-            this.calcAvailableMesh();
-            this.paintAvailableMesh();
+            this.processMesh();
+            this.paintMesh();
             this.paintFocal();
             this.render();
         },
 
         viewang() {
             this.paintView();
+            this.processMesh();
             this.paintFocal();
             this.render();
         },
 
         height() {
             this.calcMesh();
-            this.calcAvailableMesh();
-            this.paintAvailableMesh();
+            this.processMesh();
+            this.paintMesh();
             this.render();
         },
 
         focal() {
             this.paintFocal();
             this.calcMesh();
-            this.calcAvailableMesh();
-            this.paintAvailableMesh();
+            this.processMesh();
+            this.paintMesh();
             this.render();
         },
 
         camera_height() {
             this.calcMesh();
-            this.calcAvailableMesh();
-            this.paintAvailableMesh();
+            this.processMesh();
+            this.paintMesh();
             this.render();
         },
     },
@@ -208,8 +213,8 @@ export default {
             this.paintLeft();
             this.printMap();
             this.calcMesh();
-            this.calcAvailableMesh();
-            this.paintAvailableMesh();
+            this.processMesh();
+            this.paintMesh();
             this.render();
         },
 
@@ -245,14 +250,14 @@ export default {
             this.viewl
                 .attr("x1", s(this.camx))
                 .attr("y1", s(this.camy))
-                .attr("x2", s(this.camx + view_radius * cos(this.viewang - view_angle / 2)))
-                .attr("y2", s(this.camy + view_radius * sin(this.viewang - view_angle / 2)));
+                .attr("x2", s(this.camx + view_radius * cos(this.viewang - this.view_angle / 2)))
+                .attr("y2", s(this.camy + view_radius * sin(this.viewang - this.view_angle / 2)));
             
             this.viewr
                 .attr("x1", s(this.camx))
                 .attr("y1", s(this.camy))
-                .attr("x2", s(this.camx + view_radius * cos(this.viewang + view_angle / 2)))
-                .attr("y2", s(this.camy + view_radius * sin(this.viewang + view_angle / 2)));
+                .attr("x2", s(this.camx + view_radius * cos(this.viewang + this.view_angle / 2)))
+                .attr("y2", s(this.camy + view_radius * sin(this.viewang + this.view_angle / 2)));
         },
 
         iscollide(x, y) {
@@ -272,75 +277,107 @@ export default {
             this.mesh = [];
 
             // 上面
-            for (let j = 1; j < ch; j++) {
+            for (let j = 0; j < ch; j++) {
                 let l = 0;
                 let ind = false;
                 for (let i = 0; i < cw; i++) {
-                    if (this.map[i][j] == 1 && this.map[i][j - 1] == 0) {
+                    if (this.map[i][j] == 1 && !this.map[i]?.[j - 1]) {
                         if (!ind) l = i;
                         ind = true;
                     } else {
-                        if (ind) this.mesh.push([[l, j, this.height], [i, j, this.height], [i, j, 0], [l, j, 0]]);
+                        if (ind) this.mesh.push([[l, j, this.height, 0], [i, j, this.height, 0], [i, j, 0, 0], [l, j, 0, 0]]);
                         ind = false;
                     }
-                    if (ind && i == cw - 1) this.mesh.push([[l, j, this.height], [i + 1, j, this.height], [i + 1, j, 0], [l, j, 0]]);
+                    if (ind && i == cw - 1) this.mesh.push([[l, j, this.height, 0], [i + 1, j, this.height, 0], [i + 1, j, 0, 0], [l, j, 0, 0]]);
                 }
             }
 
             // 下面
-            for (let j = 0; j < ch - 1; j++) {
+            for (let j = 0; j < ch; j++) {
                 let l = 0;
                 let ind = false;
                 for (let i = 0; i < cw; i++) {
-                    if (this.map[i][j] == 1 && this.map[i][j + 1] == 0) {
+                    if (this.map[i][j] == 1 && !this.map[i]?.[j + 1]) {
                         if (!ind) l = i;
                         ind = true;
                     } else {
-                        if (ind) this.mesh.push([[l, j + 1, this.height], [i, j + 1, this.height], [i, j + 1, 0], [l, j + 1, 0]]);
+                        if (ind) this.mesh.push([[l, j + 1, this.height, 0], [i, j + 1, this.height, 0], [i, j + 1, 0, 0], [l, j + 1, 0, 0]]);
                         ind = false;
                     }
-                    if (ind && i == cw - 1) this.mesh.push([[l, j + 1, this.height], [i + 1, j + 1, this.height], [i + 1, j + 1, 0], [l, j + 1, 0]]);
+                    if (ind && i == cw - 1) this.mesh.push([[l, j + 1, this.height, 0], [i + 1, j + 1, this.height, 0], [i + 1, j + 1, 0, 0], [l, j + 1, 0, 0]]);
                 }
             }
 
             // 左面
-            for (let i = 1; i < cw; i++) {
+            for (let i = 0; i < cw; i++) {
                 let t = 0;
                 let ind = false;
                 for (let j = 0; j < ch; j++) {
-                    if (this.map[i][j] == 1 && this.map[i - 1][j] == 0) {
+                    if (this.map[i][j] == 1 && !this.map?.[i - 1]?.[j]) {
                         if (!ind) t = j;
                         ind = true;
                     } else {
-                        if (ind) this.mesh.push([[i, t, this.height], [i, j, this.height], [i, j, 0], [i, t, 0]]);
+                        if (ind) this.mesh.push([[i, t, this.height, 0], [i, j, this.height, 0], [i, j, 0, 0], [i, t, 0, 0]]);
                         ind = false;
                     }
-                    if (ind && j == ch - 1) this.mesh.push([[i, t, this.height], [i, j + 1, this.height], [i, j + 1, 0], [i, t, 0]]);
+                    if (ind && j == ch - 1) this.mesh.push([[i, t, this.height, 0], [i, j + 1, this.height, 0], [i, j + 1, 0, 0], [i, t, 0, 0]]);
                 }
             }
 
             // 右面
-            for (let i = 0; i < cw - 1; i++) {
+            for (let i = 0; i < cw; i++) {
                 let t = 0;
                 let ind = false;
                 for (let j = 0; j < ch; j++) {
-                    if (this.map[i][j] == 1 && this.map[i + 1][j] == 0) {
+                    if (this.map[i][j] == 1 && !this.map?.[i + 1]?.[j]) {
                         if (!ind) t = j;
                         ind = true;
                     } else {
-                        if (ind) this.mesh.push([[i + 1, t, this.height], [i + 1, j, this.height], [i + 1, j, 0], [i + 1, t, 0]]);
+                        if (ind) this.mesh.push([[i + 1, t, this.height, 0], [i + 1, j, this.height, 0], [i + 1, j, 0, 0], [i + 1, t, 0, 0]]);
                         ind = false;
                     }
-                    if (ind && j == ch - 1) this.mesh.push([[i + 1, t, this.height], [i + 1, j + 1, this.height], [i + 1, j + 1, 0], [i + 1, t, 0]]);
+                    if (ind && j == ch - 1) this.mesh.push([[i + 1, t, this.height, 0], [i + 1, j + 1, this.height, 0], [i + 1, j + 1, 0, 0], [i + 1, t, 0, 0]]);
                 }
             }
         },
 
-        calcAvailableMesh() {
-            // this.mesh = this.mesh;
+        processMesh() {
+            for (let i = 0; i < this.mesh.length; i++)
+                for (let j = 0; j < this.mesh[i].length; j++)
+                    this.mesh[i][j][3] = this.depthOf(this.mesh[i][j]);
+
+            const maxDepth = arr => arr.reduce((a, b) => a[3] > b[3] ? a[3] : b[3]);
+            const minDepth = arr => arr.reduce((a, b) => a[3] < b[3] ? a[3] : b[3]);
+
+            // 面最大深度排序
+            this.mesh.sort((a, b) => maxDepth(b) - maxDepth(a));
+
+            // 输出数据
+            let meshp = extend(true, [], this.mesh);
+            let print = "";
+            for (let i = 0; i < meshp.length; i++) {
+                let v = meshp[i];
+                v.sort((a, b) => b[3] - a[3]);
+                print += "{";
+                for (let j = 0; j < v.length; j++) {
+                    print += `{${j}, ${v[j][3]}}, `;
+                }
+                print += "}, ";
+            }
+            console.log(print);
+
+            // 合格检测
+            let iter = 1;
+            for (iter = 1; iter < meshp.length; iter++) {
+                let p = meshp[iter - 1];
+                let v = meshp[iter];
+                if (minDepth(p) < maxDepth(v)) break;
+            }
+            if (iter == meshp.length)
+                console.log("合格");
         },
 
-        paintAvailableMesh() {
+        paintMesh() {
             this.left.selectAll(".mesh").remove();
 
             for (let i = 0; i < this.mesh.length; i++) {
@@ -359,10 +396,10 @@ export default {
 
         paintFocal() {
             this.focalLine
-                .attr("x1", s(this.camx + this.focal * sec(view_angle / 2) * cos(this.viewang + view_angle / 2)))
-                .attr("y1", s(this.camy + this.focal * sec(view_angle / 2) * sin(this.viewang + view_angle / 2)))
-                .attr("x2", s(this.camx + this.focal * sec(view_angle / 2) * cos(this.viewang - view_angle / 2)))
-                .attr("y2", s(this.camy + this.focal * sec(view_angle / 2) * sin(this.viewang - view_angle / 2)));
+                .attr("x1", s(this.camx + this.focal * sec(this.view_angle / 2) * cos(this.viewang + this.view_angle / 2)))
+                .attr("y1", s(this.camy + this.focal * sec(this.view_angle / 2) * sin(this.viewang + this.view_angle / 2)))
+                .attr("x2", s(this.camx + this.focal * sec(this.view_angle / 2) * cos(this.viewang - this.view_angle / 2)))
+                .attr("y2", s(this.camy + this.focal * sec(this.view_angle / 2) * sin(this.viewang - this.view_angle / 2)));
         },
 
         render() {
@@ -374,7 +411,7 @@ export default {
 
                 for (j = 0; j < v.length; j++) {
                     let t = (v[j][1] - this.camy) / (v[j][0] - this.camx);
-                    let h = (v[j][0] - this.camx) * cos(this.viewang) + (v[j][1] - this.camy) * sin(this.viewang);
+                    let h = v[j][3];
                     if (h < 0) break;
                     let x = cw / 2 - this.focal * tan(this.viewang - arctan(t));
                     let y = ch / 2 - this.focal * (v[j][2] - this.camera_height) / h;
@@ -384,8 +421,10 @@ export default {
                 this.right
                     .append("polygon")
                     .attr("points", pts)
+                    // .attr("fill", "#b2b2ff")
+                    // .attr("stroke", "rgba(0, 0, 255, .7)")
                     .attr("fill", "rgba(0, 0, 255, .1)")
-                    .attr("stroke", "rgba(0, 0, 255, .3)")
+                    .attr("stroke", "rgba(0, 0, 255, .4)")
             }
         },
 
@@ -395,7 +434,11 @@ export default {
             } else {
                 this.rotate(-this.rotate_sensitivity);
             }
-        }
+        },
+
+        depthOf(v) {
+            return (v[0] - this.camx) * cos(this.viewang) + (v[1] - this.camy) * sin(this.viewang);
+        },
     },
     mounted() {
         // this.initMap();
@@ -438,6 +481,7 @@ export default {
             .attr("y", 0)
             .attr("width", s(cw))
             .attr("height", s(ch))
+            .attr("id", "svg-left")
             .attr("style", "cursor: pointer");
 
         this.right = this.canvas
@@ -445,7 +489,8 @@ export default {
             .attr("x", s(cw + spacing))
             .attr("y", 0)
             .attr("width", s(cw))
-            .attr("height", s(ch));
+            .attr("height", s(ch))
+            .attr("id", "svg-right");
 
         // 格子
         for (let i = 0; i < cw; i++) {
@@ -469,8 +514,8 @@ export default {
 
         // 渲染
         this.calcMesh();
-        this.calcAvailableMesh();
-        this.paintAvailableMesh();
+        this.processMesh();
+        this.paintMesh();
         this.render();
 
         // 视角边界
@@ -536,16 +581,20 @@ export default {
         // 鼠标操作
         (() => {
             let cvs = document.getElementById("border-right");
+            let svg = document.getElementById("svg-right");
             let mv = (e) => { that.mousemove(e); };
             cvs.addEventListener("click", () => {
                 cvs.requestPointerLock();
             });
+            svg.addEventListener("click", () => {
+                svg.requestPointerLock();
+            });
             document.addEventListener("click", () => {
-                if (document.pointerLockElement == cvs)
+                if (document.pointerLockElement)
                     document.exitPointerLock();
             });
             document.addEventListener("pointerlockchange", () => {
-                if (document.pointerLockElement == cvs)
+                if (document.pointerLockElement)
                     document.addEventListener("mousemove", mv, false);
                 else
                     document.removeEventListener("mousemove", mv, false);
@@ -570,9 +619,15 @@ export default {
     width: 300px
     padding: 1rem
 
-#border-right
+#border-right, #svg-right
     cursor: pointer
 
 *   
     user-select: none
+
+#xec
+    text-decoration: none
+    color: #409EFF
+    &:hover
+        color: #337ecc
 </style>
